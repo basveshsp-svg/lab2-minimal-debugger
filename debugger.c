@@ -1,3 +1,4 @@
+#include <sys/user.h>
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -19,10 +20,24 @@ int main(int argc, char *argv[]) {
         perror("exec failed");
         exit(1);
     } else {
-        int status;
-        waitpid(pid, &status, 0);
-        printf("Child stopped. Debugger ready.\n");
-    }
+    int status;
+    struct user_regs_struct regs;
+
+    waitpid(pid, &status, 0);
+    printf("Child stopped. Single stepping one instruction...\n");
+
+    ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL);
+    waitpid(pid, &status, 0);
+
+    ptrace(PTRACE_GETREGS, pid, NULL, &regs);
+    printf("RIP (instruction pointer) = 0x%llx\n", regs.rip);
+
+    ptrace(PTRACE_CONT, pid, NULL, NULL);
+    waitpid(pid, &status, 0);
+
+    printf("Child finished execution.\n");
+}
+
 
     return 0;
 }
