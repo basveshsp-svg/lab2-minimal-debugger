@@ -6,6 +6,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+long set_breakpoint(pid_t pid, long addr) {
+    long data = ptrace(PTRACE_PEEKTEXT, pid, (void*)addr, NULL);
+    long int3 = (data & ~0xff) | 0xcc;   // replace lowest byte with INT3
+    ptrace(PTRACE_POKETEXT, pid, (void*)addr, (void*)int3);
+    return data; // return original instruction
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         printf("Usage: %s <program>\n", argv[0]);
@@ -23,20 +30,35 @@ int main(int argc, char *argv[]) {
     int status;
     struct user_regs_struct regs;
 
+    // Wait for child to stop after exec
     waitpid(pid, &status, 0);
-    printf("Child stopped. Single stepping one instruction...\n");
+    printf("Child stopped. Setting breakpoint...\n");
 
-    ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL);
-    waitpid(pid, &status, 0);
-
+    // Get registers to know where we are
     ptrace(PTRACE_GETREGS, pid, NULL, &regs);
-    printf("RIP (instruction pointer) = 0x%llx\n", regs.rip);
+    long rip = regs.rip;
 
+    // Set breakpoint at current RIP
+    long saved_data = set_breakpoint(pid, rip);
+
+    // Continue execution
+    ptrace(PTRACE_CONT, pid, NULL, NULL);
+    waitpid(pid, &status, 0);
+
+    if (WIFSTOPPED(status)) {
+        printf("Breakpoint hit!\n");
+    }
+
+    // Restore original instruction
+    ptrace(PTRACE_POKETEXT, pid, (void*)rip, (void*)saved_data);
+
+    // Continue execution normally
     ptrace(PTRACE_CONT, pid, NULL, NULL);
     waitpid(pid, &status, 0);
 
     printf("Child finished execution.\n");
 }
+
 
 
     return 0;
